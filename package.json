@@ -1,0 +1,22 @@
+{
+  "name": "taller-mecanico-app",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.80.0",
+    "autoprefixer": "^10.4.16",
+    "firebase": "^12.5.0",
+    "lucide-react": "^0.292.0",
+    "next": "^14.0.3",
+    "postcss": "^8.4.31",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "tailwindcss": "^3.3.5"
+  }
+}
