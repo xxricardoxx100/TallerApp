@@ -9,7 +9,7 @@ export const metadata = {
   description: 'Aplicación para gestión de taller mecánico',
   icons: {
     icon: '/favicon.ico',
-    apple: '/icons/icon-192.png',
+    apple: '/apple-touch-icon.png',
   },
 }
 
@@ -19,6 +19,7 @@ export default function RootLayout({ children }) {
       <head>
         <link rel="manifest" href="/manifest.json" />
         <meta name="theme-color" content="#0f172a" />
+        <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
       </head>
       <body className={inter.className}>
         <ServiceWorkerRegister />
