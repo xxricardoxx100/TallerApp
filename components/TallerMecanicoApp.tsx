@@ -6,6 +6,14 @@ import { useUploadImages } from '../hooks/useUploadImages';
 import { Vehicle } from '../lib/vehicles';
 import { filterVehicles, SearchFilters, ESTADOS_DISPONIBLES } from '../lib/search';
 
+const STATUS_TABS = [
+  { label: 'Todos', value: '' },
+  { label: 'En proceso', value: 'En proceso' },
+  { label: 'Esperando piezas', value: 'Esperando piezas' },
+  { label: 'Listo para entrega', value: 'Listo para entrega' },
+  { label: 'Finalizado', value: 'Entregado' }
+] as const;
+
 export default function TallerMecanicoApp() {
   const { vehicles, loading, saveStatus, addVehicle, addUpdate, saveVehicle } = useVehicles();
   const [selectedVehicle, setSelectedVehicle] = useState<Vehicle | null>(null);
@@ -34,6 +42,18 @@ export default function TallerMecanicoApp() {
   const filteredVehicles = useMemo(() => {
     return filterVehicles(vehicles, filters);
   }, [vehicles, filters]);
+
+  const statusCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    STATUS_TABS.forEach(tab => {
+      counts[tab.value] = 0;
+    });
+    vehicles.forEach(vehicle => {
+      counts[vehicle.estado] = (counts[vehicle.estado] ?? 0) + 1;
+    });
+    counts[''] = vehicles.length;
+    return counts;
+  }, [vehicles]);
 
   const hasActiveFilters = filters.searchValue || filters.estado || filters.fechaDesde || filters.fechaHasta;
 
@@ -348,6 +368,30 @@ export default function TallerMecanicoApp() {
           </button>
         </div>
       </div>
+
+        {/* Tabs de estados */}
+        <div className="bg-white border-b shadow-sm">
+          <div className="flex overflow-x-auto gap-2 px-4 py-3">
+            {STATUS_TABS.map(tab => {
+              const isActive = filters.estado === tab.value;
+              const count = statusCounts[tab.value] ?? 0;
+              return (
+                <button
+                  key={tab.value ?? 'all'}
+                  onClick={() => setFilters(prev => ({ ...prev, estado: tab.value }))}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold transition-all border ${
+                    isActive ? 'bg-blue-600 text-white border-blue-600 shadow-md' : 'bg-white text-blue-600 border-blue-200 hover:bg-blue-50'
+                  }`}
+                >
+                  <span>{tab.label}</span>
+                  <span className={`px-2 py-0.5 rounded-full ${isActive ? 'bg-white text-blue-600' : 'bg-blue-100 text-blue-700'}`}>
+                    {count}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
 
       {/* Panel de Búsqueda */}
       {showSearch && (
