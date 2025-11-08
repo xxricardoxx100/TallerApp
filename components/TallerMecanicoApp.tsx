@@ -87,7 +87,7 @@ export default function TallerMecanicoApp() {
 
   // Form nuevo vehículo (usa hook de subida de imágenes)
   const NewVehicleForm: React.FC = () => {
-    const { images, addFiles, removeAt, reset } = useUploadImages();
+    const { images, addFiles, removeAt, reset, isCompressing } = useUploadImages();
     const [formData, setFormData] = useState({
       placa: '', marca: '', modelo: '', año: '', cliente: '', telefono: '', problema: ''
     });
@@ -103,7 +103,11 @@ export default function TallerMecanicoApp() {
       setSaving(true);
       showToast('Guardando vehículo...', 'success');
       
-      const success = await addVehicle({ ...formData, imagenes: images } as any);
+      // Separar imágenes originales y thumbnails
+      const imagenes = images.map(img => img.original);
+      const thumbnails = images.map(img => img.thumbnail);
+      
+      const success = await addVehicle({ ...formData, imagenes, thumbnails } as any);
       
       if (success) {
         showToast('✅ Vehículo registrado con éxito', 'success');
@@ -162,13 +166,23 @@ export default function TallerMecanicoApp() {
             </div>
             <div>
               <label className="block text-sm font-medium mb-2">Imágenes</label>
-              <input type="file" accept="image/*" multiple onChange={e => addFiles(e.target.files)} className="w-full p-2 border rounded" />
+              <input 
+                type="file" 
+                accept="image/*" 
+                multiple 
+                onChange={e => addFiles(e.target.files)} 
+                className="w-full p-2 border rounded"
+                disabled={isCompressing}
+              />
+              {isCompressing && (
+                <p className="text-xs text-blue-600 mt-2">Comprimiendo imágenes...</p>
+              )}
               {images.length > 0 && (
                 <div className="grid grid-cols-3 gap-2 mt-2">
                   {images.map((img, i) => (
                     <div key={i} className="relative">
                       {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src={img} alt={`upload-${i}`} className="w-full h-24 object-cover rounded" />
+                      <img src={img.thumbnail} alt={`upload-${i}`} className="w-full h-24 object-cover rounded" />
                       <button onClick={() => removeAt(i)} className="absolute top-1 right-1 bg-red-500 text-white rounded p-1"><X size={12} /></button>
                     </div>
                   ))}
@@ -198,7 +212,7 @@ export default function TallerMecanicoApp() {
   };
 
   const NewUpdateForm: React.FC = () => {
-    const { images, addFiles, removeAt, reset } = useUploadImages();
+    const { images, addFiles, removeAt, reset, isCompressing } = useUploadImages();
     const [descripcion, setDescripcion] = useState('');
     const [saving, setSaving] = useState(false);
     
@@ -212,7 +226,11 @@ export default function TallerMecanicoApp() {
       setSaving(true);
       showToast('Guardando actualización...', 'success');
       
-      const success = await addUpdate(selectedVehicle.id, { descripcion, imagenes: images } as any);
+      // Separar imágenes originales y thumbnails
+      const imagenes = images.map(img => img.original);
+      const thumbnails = images.map(img => img.thumbnail);
+      
+      const success = await addUpdate(selectedVehicle.id, { descripcion, imagenes, thumbnails } as any);
       
       if (success && selectedVehicle) {
         showToast('✅ Actualización guardada con éxito', 'success');
@@ -242,12 +260,22 @@ export default function TallerMecanicoApp() {
             </div>
             <div>
               <label className="block text-sm font-medium mb-2">Imágenes del avance</label>
-              <input type="file" accept="image/*" multiple onChange={e => addFiles(e.target.files)} className="w-full p-2 border rounded" />
+              <input 
+                type="file" 
+                accept="image/*" 
+                multiple 
+                onChange={e => addFiles(e.target.files)} 
+                className="w-full p-2 border rounded"
+                disabled={isCompressing}
+              />
+              {isCompressing && (
+                <p className="text-xs text-blue-600 mt-2">Comprimiendo imágenes...</p>
+              )}
               {images.length > 0 && (
                 <div className="grid grid-cols-3 gap-2 mt-2">
                   {images.map((img, i) => (
                     <div key={i} className="relative">
-                      <img src={img} alt={`update-${i}`} className="w-full h-24 object-cover rounded" />
+                      <img src={img.thumbnail} alt={`update-${i}`} className="w-full h-24 object-cover rounded" />
                       <button onClick={() => removeAt(i)} className="absolute top-1 right-1 bg-red-500 text-white rounded p-1"><X size={12} /></button>
                     </div>
                   ))}
@@ -320,11 +348,15 @@ export default function TallerMecanicoApp() {
             <div className="bg-white rounded-lg border p-4">
               <h3 className="font-semibold mb-3">Imágenes Iniciales</h3>
               <div className="grid grid-cols-3 gap-2">
-                {selectedVehicle.imagenes.map((img, i) => (
-                  <button key={i} onClick={() => setModalImage(img)} className="overflow-hidden rounded">
-                    <img src={img} alt={`vehiculo-${i}`} className="w-full h-20 object-cover rounded-sm" onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }} />
-                  </button>
-                ))}
+                {selectedVehicle.imagenes.map((img, i) => {
+                  // Usar thumbnail si está disponible, sino la imagen original
+                  const thumbnailSrc = selectedVehicle.thumbnails?.[i] || img;
+                  return (
+                    <button key={i} onClick={() => setModalImage(img)} className="overflow-hidden rounded">
+                      <img src={thumbnailSrc} alt={`vehiculo-${i}`} className="w-full h-20 object-cover rounded-sm" onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+                    </button>
+                  );
+                })}
               </div>
             </div>)}
           {modalImage && (
@@ -347,11 +379,14 @@ export default function TallerMecanicoApp() {
                     <p className="text-sm text-gray-700">{upd.descripcion}</p>
                     {upd.imagenes.length > 0 && (
                       <div className="grid grid-cols-3 gap-1 mt-2">
-                        {upd.imagenes.map((img, i) => (
-                          <button key={i} onClick={() => setModalImage(img)} className="overflow-hidden rounded">
-                            <img src={img} alt={`update-${i}`} className="w-full h-20 object-cover rounded" onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }} />
-                          </button>
-                        ))}
+                        {upd.imagenes.map((img, i) => {
+                          const thumbnailSrc = upd.thumbnails?.[i] || img;
+                          return (
+                            <button key={i} onClick={() => setModalImage(img)} className="overflow-hidden rounded">
+                              <img src={thumbnailSrc} alt={`update-${i}`} className="w-full h-20 object-cover rounded" onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+                            </button>
+                          );
+                        })}
                       </div>)}
                   </div>
                 ))}

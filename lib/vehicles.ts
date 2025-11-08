@@ -3,6 +3,7 @@ export interface VehicleUpdate {
   fecha: string;
   descripcion: string;
   imagenes: string[];
+  thumbnails?: string[]; // Thumbnails opcionales
 }
 
 export interface Vehicle {
@@ -15,6 +16,7 @@ export interface Vehicle {
   telefono?: string;
   problema?: string;
   imagenes: string[];
+  thumbnails?: string[]; // Thumbnails opcionales
   fechaIngreso: string;
   estado: string;
   actualizaciones: VehicleUpdate[];
@@ -32,6 +34,7 @@ export function normalizeVehicle(raw: any): Vehicle {
     telefono: raw.telefono || '',
     problema: raw.problema || '',
     imagenes: Array.isArray(raw.imagenes) ? raw.imagenes.filter(Boolean) : [],
+    thumbnails: Array.isArray(raw.thumbnails) ? raw.thumbnails.filter(Boolean) : [],
     fechaIngreso: raw.fechaIngreso || new Date().toISOString(),
     estado: raw.estado || 'En proceso',
     actualizaciones: Array.isArray(raw.actualizaciones)
@@ -39,7 +42,8 @@ export function normalizeVehicle(raw: any): Vehicle {
           id: String(u.id),
           fecha: u.fecha || new Date().toISOString(),
           descripcion: u.descripcion || '',
-          imagenes: Array.isArray(u.imagenes) ? u.imagenes.filter(Boolean) : []
+          imagenes: Array.isArray(u.imagenes) ? u.imagenes.filter(Boolean) : [],
+          thumbnails: Array.isArray(u.thumbnails) ? u.thumbnails.filter(Boolean) : []
         }))
       : []
   };
