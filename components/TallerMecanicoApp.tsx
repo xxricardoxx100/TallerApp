@@ -1,10 +1,11 @@
 "use client";
 import React, { useState, useMemo, useEffect } from 'react';
-import { Car, Plus, ChevronRight, Save, X, CheckCircle, Search } from 'lucide-react';
+import { Car, Plus, ChevronRight, Save, X, CheckCircle, Search, FileText, Share2, Download } from 'lucide-react';
 import { useVehicles } from '../hooks/useVehicles';
 import { useUploadImages } from '../hooks/useUploadImages';
 import { Vehicle } from '../lib/vehicles';
 import { filterVehicles, SearchFilters, ESTADOS_DISPONIBLES } from '../lib/search';
+import { downloadVehiclePDF, shareVehiclePDFWhatsApp } from '../lib/pdfGenerator';
 
 const STATUS_TABS = [
   { label: 'Todos', value: '' },
@@ -15,7 +16,7 @@ const STATUS_TABS = [
 ] as const;
 
 export default function TallerMecanicoApp() {
-  const { vehicles, loading, saveStatus, addVehicle, addUpdate, saveVehicle } = useVehicles();
+  const { vehicles, loading, saveStatus, isOnline, isFromCache, addVehicle, addUpdate, saveVehicle } = useVehicles();
   const [selectedVehicle, setSelectedVehicle] = useState<Vehicle | null>(null);
   const [showNewVehicle, setShowNewVehicle] = useState(false);
   const [showNewUpdate, setShowNewUpdate] = useState(false);
@@ -32,6 +33,16 @@ export default function TallerMecanicoApp() {
 
   // Estado para notificaciones toast
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+
+  // Sincronizar selectedVehicle cuando cambian los vehicles
+  useEffect(() => {
+    if (selectedVehicle) {
+      const updated = vehicles.find(v => v.id === selectedVehicle.id);
+      if (updated) {
+        setSelectedVehicle(updated);
+      }
+    }
+  }, [vehicles]);
 
   const showToast = (message: string, type: 'success' | 'error' = 'success') => {
     setToast({ message, type });
@@ -306,21 +317,93 @@ export default function TallerMecanicoApp() {
 
   const VehicleDetail: React.FC = () => {
     const [modalImage, setModalImage] = useState<string | null>(null);
+    const [generatingPDF, setGeneratingPDF] = useState(false);
+    
     if (!selectedVehicle) return null;
+    
     const updateStatus = async (estado: string) => {
       const updated = { ...selectedVehicle, estado } as Vehicle;
       const ok = await saveVehicle(updated);
       if (ok) setSelectedVehicle(updated);
     };
+
+    const handleDownloadPDF = async () => {
+      setGeneratingPDF(true);
+      try {
+        await downloadVehiclePDF(selectedVehicle);
+        showToast('PDF descargado exitosamente');
+      } catch (error) {
+        console.error('Error generando PDF:', error);
+        showToast('Error al generar PDF');
+      } finally {
+        setGeneratingPDF(false);
+      }
+    };
+
+    const handleShareWhatsApp = async () => {
+      setGeneratingPDF(true);
+      try {
+        await shareVehiclePDFWhatsApp(selectedVehicle, selectedVehicle.accessCode);
+        showToast('Abriendo WhatsApp...');
+      } catch (error) {
+        console.error('Error compartiendo por WhatsApp:', error);
+        showToast('Error al compartir por WhatsApp');
+      } finally {
+        setGeneratingPDF(false);
+      }
+    };
+
     return (
       <div className="fixed inset-0 bg-white z-40 overflow-y-auto">
-        <div className="sticky top-0 bg-blue-600 text-white p-4 flex items-center gap-3">
+        <div className="sticky top-0 bg-blue-600 text-white p-4 flex items-center gap-3 shadow-md">
           <button onClick={() => setSelectedVehicle(null)} className="text-white"><X size={24} /></button>
           <div className="flex-1">
             <h2 className="text-lg font-bold">{selectedVehicle.placa}</h2>
             <p className="text-sm opacity-90">{selectedVehicle.marca} {selectedVehicle.modelo}</p>
           </div>
         </div>
+
+        {/* Botones de acción PDF y WhatsApp */}
+        <div className="bg-gradient-to-r from-blue-50 to-blue-100 p-3 border-b border-blue-200">
+          <div className="flex gap-2">
+            <button
+              onClick={handleDownloadPDF}
+              disabled={generatingPDF}
+              className="flex-1 flex items-center justify-center gap-2 bg-white text-blue-600 px-4 py-2.5 rounded-lg font-medium shadow-sm hover:shadow-md transition-all disabled:opacity-50 disabled:cursor-not-allowed border border-blue-200"
+            >
+              {generatingPDF ? (
+                <>
+                  <div className="animate-spin rounded-full h-4 w-4 border-2 border-blue-600 border-t-transparent"></div>
+                  <span className="text-sm">Generando...</span>
+                </>
+              ) : (
+                <>
+                  <Download size={18} />
+                  <span className="text-sm">Descargar PDF</span>
+                </>
+              )}
+            </button>
+            
+            <button
+              onClick={handleShareWhatsApp}
+              disabled={generatingPDF}
+              className="flex-1 flex items-center justify-center gap-2 bg-green-500 text-white px-4 py-2.5 rounded-lg font-medium shadow-sm hover:shadow-md hover:bg-green-600 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {generatingPDF ? (
+                <>
+                  <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
+                  <span className="text-sm">Preparando...</span>
+                </>
+              ) : (
+                <>
+                  <Share2 size={18} />
+                  <span className="text-sm">Enviar WhatsApp</span>
+                </>
+              )}
+            </button>
+          </div>
+        </div>
+
         <div className="p-4 space-y-4">
           <div className="bg-white rounded-lg border p-4">
             <h3 className="font-semibold mb-3">Información del Cliente</h3>
@@ -328,6 +411,12 @@ export default function TallerMecanicoApp() {
               <p><span className="font-medium">Cliente:</span> {selectedVehicle.cliente}</p>
               {selectedVehicle.telefono && <p><span className="font-medium">Teléfono:</span> {selectedVehicle.telefono}</p>}
               <p><span className="font-medium">Ingreso:</span> {new Date(selectedVehicle.fechaIngreso).toLocaleDateString('es-PE', { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</p>
+              {selectedVehicle.accessCode && (
+                <p>
+                  <span className="font-medium">Código de acceso:</span>{' '}
+                  <span className="font-mono text-blue-600 font-semibold">{selectedVehicle.accessCode}</span>
+                </p>
+              )}
             </div>
           </div>
           <div className="bg-white rounded-lg border p-4">
@@ -427,6 +516,18 @@ export default function TallerMecanicoApp() {
           </button>
         </div>
       </div>
+
+      {/* Banner de estado de conexión */}
+      {!isOnline && (
+        <div className="bg-red-500 text-white text-center py-2 px-4 text-sm font-medium shadow-md">
+          ⚠️ Sin conexión - Mostrando datos offline
+        </div>
+      )}
+      {isOnline && isFromCache && (
+        <div className="bg-blue-500 text-white text-center py-2 px-4 text-sm font-medium shadow-md animate-pulse">
+          🔄 Sincronizando con el servidor...
+        </div>
+      )}
 
         {/* Tabs de estados */}
         <div className="bg-white border-b shadow-sm">
@@ -557,7 +658,14 @@ export default function TallerMecanicoApp() {
           ))
         )}
       </div>
-      <button onClick={() => setShowNewVehicle(true)} className="fixed bottom-6 right-6 bg-blue-600 text-white p-4 rounded-full shadow-lg hover:bg-blue-700 transition-colors z-30">
+      <button 
+        onClick={() => setShowNewVehicle(true)} 
+        disabled={!isOnline}
+        className={`fixed bottom-6 right-6 text-white p-4 rounded-full shadow-lg transition-colors z-30 ${
+          isOnline ? 'bg-blue-600 hover:bg-blue-700' : 'bg-gray-400 cursor-not-allowed'
+        }`}
+        title={isOnline ? 'Agregar vehículo' : 'Sin conexión - No se pueden agregar vehículos'}
+      >
         <Plus size={28} />
       </button>
       {showNewVehicle && <NewVehicleForm />}
