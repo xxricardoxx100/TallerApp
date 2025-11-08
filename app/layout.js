@@ -5,7 +5,7 @@ import ServiceWorkerRegister from '../components/ServiceWorkerRegister'
 const inter = Inter({ subsets: ['latin'] })
 
 export const metadata = {
-  title: 'Taller Mecánico',
+  title: 'Taller Caltimer',
   description: 'Aplicación para gestión de taller mecánico',
   icons: {
     icon: '/favicon.ico',

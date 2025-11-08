@@ -1,7 +1,7 @@
 {
   "id": "/?v=1",
-  "name": "Taller Mecánico",
-  "short_name": "Taller",
+  "name": "Taller Caltimer",
+  "short_name": "Taller Caltimer",
   "description": "Gestión de vehículos y actualizaciones en taller mecánico",
   "start_url": "/",
   "scope": "/",
