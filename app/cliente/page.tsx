@@ -31,9 +31,13 @@ export default function ClientePortal() {
       <div className="bg-blue-600 text-white py-8 shadow-lg">
         <div className="container mx-auto px-4">
           <div className="flex items-center justify-center gap-3">
-            <Car size={40} />
+            <img 
+              src="/images/logo.png" 
+              alt="Mecatronica Caltimer Logo" 
+              className="h-12 w-auto"
+            />
             <div>
-              <h1 className="text-3xl font-bold">TALLER CALTIMER</h1>
+              <h1 className="text-3xl font-bold">MECATRONICA CALTIMER</h1>
               <p className="text-blue-100 text-sm">Portal del Cliente</p>
             </div>
           </div>
@@ -112,7 +116,7 @@ export default function ClientePortal() {
             <div className="mt-8 pt-6 border-t border-gray-200">
               <p className="text-center text-xs text-gray-500">
                 ¿No tienes un código de acceso?<br />
-                Solicítalo a Taller Caltimer
+                Solicítalo a Mecatronica Caltimer
               </p>
             </div>
           </div>

@@ -4,6 +4,7 @@ export interface VehicleUpdate {
   descripcion: string;
   imagenes: string[];
   thumbnails?: string[]; // Thumbnails opcionales
+  createdBy?: string; // Nombre del usuario que creó la actualización
 }
 
 export interface Vehicle {
@@ -45,7 +46,8 @@ export function normalizeVehicle(raw: any): Vehicle {
           fecha: u.fecha || new Date().toISOString(),
           descripcion: u.descripcion || '',
           imagenes: Array.isArray(u.imagenes) ? u.imagenes.filter(Boolean) : [],
-          thumbnails: Array.isArray(u.thumbnails) ? u.thumbnails.filter(Boolean) : []
+          thumbnails: Array.isArray(u.thumbnails) ? u.thumbnails.filter(Boolean) : [],
+          createdBy: u.createdBy || undefined
         }))
       : []
   };

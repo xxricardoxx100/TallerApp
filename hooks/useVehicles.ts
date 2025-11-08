@@ -4,6 +4,7 @@ import initStorage from '../app/storage';
 import { Vehicle, VehicleUpdate, normalizeVehicle, sortVehicles, generateAccessCode } from '../lib/vehicles';
 import { cacheVehicles, getCachedVehicles } from '../lib/offlineCache';
 import { useOnlineStatus } from './useOnlineStatus';
+import { supabase } from '../lib/supabase';
 
 interface UseVehiclesResult {
   vehicles: Vehicle[];
@@ -14,7 +15,8 @@ interface UseVehiclesResult {
   reload: () => Promise<void>;
   saveVehicle: (v: Vehicle) => Promise<boolean>;
   addVehicle: (partial: Omit<Vehicle, 'id' | 'fechaIngreso' | 'estado' | 'actualizaciones'>) => Promise<boolean>;
-  addUpdate: (vehicleId: string, update: Omit<VehicleUpdate, 'id' | 'fecha'>) => Promise<boolean>;
+  addUpdate: (vehicleId: string, update: Omit<VehicleUpdate, 'id' | 'fecha'>, createdBy?: string) => Promise<boolean>;
+  deleteVehicle: (vehicleId: string) => Promise<boolean>;
 }
 
 export function useVehicles(): UseVehiclesResult {
@@ -104,18 +106,59 @@ export function useVehicles(): UseVehiclesResult {
     return saveVehicle(vehicle);
   }, [saveVehicle]);
 
-  const addUpdate = useCallback(async (vehicleId: string, updatePartial: Omit<VehicleUpdate, 'id' | 'fecha'>) => {
+  const addUpdate = useCallback(async (vehicleId: string, updatePartial: Omit<VehicleUpdate, 'id' | 'fecha'>, createdBy?: string) => {
     const target = vehicles.find(v => v.id === vehicleId);
     if (!target) return false;
     const update: VehicleUpdate = {
       ...updatePartial,
       id: Date.now().toString(),
       fecha: new Date().toISOString(),
-      imagenes: updatePartial.imagenes || []
+      imagenes: updatePartial.imagenes || [],
+      createdBy // Agregar el nombre del usuario que crea la actualización
     };
     const updated: Vehicle = { ...target, actualizaciones: [...target.actualizaciones, update] };
     return saveVehicle(updated);
   }, [vehicles, saveVehicle]);
 
-  return { vehicles, loading, saveStatus, isOnline, isFromCache, reload, saveVehicle, addVehicle, addUpdate };
+  const deleteVehicle = useCallback(async (vehicleId: string) => {
+    setSaveStatus('Eliminando...');
+    await ensureStorage();
+    try {
+      const key = `vehicle:${vehicleId}`;
+      
+      if (supabase) {
+        console.log('Intentando eliminar vehículo:', vehicleId);
+        
+        // Eliminar de la tabla vehicles en Supabase usando el cliente singleton
+        const { error } = await supabase
+          .from('vehicles')
+          .delete()
+          .eq('id', vehicleId)
+          .select();
+        
+        if (error) {
+          console.error('Error de Supabase al eliminar:', error);
+          throw error;
+        }
+        
+        console.log('Vehículo eliminado exitosamente de Supabase');
+      } else {
+        // Fallback a localStorage
+        console.log('Eliminando de localStorage:', key);
+        localStorage.removeItem(key);
+      }
+      
+      await reload();
+      setSaveStatus('✓ Eliminado');
+      setTimeout(() => setSaveStatus(''), 2000);
+      return true;
+    } catch (e: any) {
+      console.error('Error al eliminar vehículo:', e);
+      setSaveStatus('Error: ' + (e.message || 'Error desconocido'));
+      setTimeout(() => setSaveStatus(''), 3000);
+      return false;
+    }
+  }, [reload]);
+
+  return { vehicles, loading, saveStatus, isOnline, isFromCache, reload, saveVehicle, addVehicle, addUpdate, deleteVehicle };
 }

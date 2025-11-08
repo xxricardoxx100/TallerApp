@@ -1,11 +1,14 @@
 "use client";
 import React, { useState, useMemo, useEffect } from 'react';
-import { Car, Plus, ChevronRight, Save, X, CheckCircle, Search, FileText, Share2, Download } from 'lucide-react';
+import { Car, Plus, ChevronRight, Save, X, CheckCircle, Search, FileText, Share2, Download, LogOut, User, Edit2, Trash2, Users } from 'lucide-react';
 import { useVehicles } from '../hooks/useVehicles';
 import { useUploadImages } from '../hooks/useUploadImages';
+import { useAuth } from '../hooks/useAuth';
 import { Vehicle } from '../lib/vehicles';
 import { filterVehicles, SearchFilters, ESTADOS_DISPONIBLES } from '../lib/search';
 import { downloadVehiclePDF, shareVehiclePDFWhatsApp } from '../lib/pdfGenerator';
+import LoginModal from './LoginModal';
+import UserManagement from './UserManagement';
 
 const STATUS_TABS = [
   { label: 'Todos', value: '' },
@@ -16,11 +19,14 @@ const STATUS_TABS = [
 ] as const;
 
 export default function TallerMecanicoApp() {
-  const { vehicles, loading, saveStatus, isOnline, isFromCache, addVehicle, addUpdate, saveVehicle } = useVehicles();
+  const { vehicles, loading, saveStatus, isOnline, isFromCache, addVehicle, addUpdate, saveVehicle, deleteVehicle } = useVehicles();
+  const { session, loading: authLoading, login, logout, isAdmin, isMechanic, isAuthenticated } = useAuth();
   const [selectedVehicle, setSelectedVehicle] = useState<Vehicle | null>(null);
   const [showNewVehicle, setShowNewVehicle] = useState(false);
   const [showNewUpdate, setShowNewUpdate] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
+  const [showEditClient, setShowEditClient] = useState(false);
+  const [showUserManagement, setShowUserManagement] = useState(false);
   
   // Estado de filtros de búsqueda
   const [filters, setFilters] = useState<SearchFilters>({
@@ -241,7 +247,12 @@ export default function TallerMecanicoApp() {
       const imagenes = images.map(img => img.original);
       const thumbnails = images.map(img => img.thumbnail);
       
-      const success = await addUpdate(selectedVehicle.id, { descripcion, imagenes, thumbnails } as any);
+      // Pasar el nombre del usuario actual como createdBy
+      const success = await addUpdate(
+        selectedVehicle.id, 
+        { descripcion, imagenes, thumbnails } as any,
+        session?.name // Agregar quién creó la actualización
+      );
       
       if (success && selectedVehicle) {
         showToast('✅ Actualización guardada con éxito', 'success');
@@ -306,6 +317,96 @@ export default function TallerMecanicoApp() {
               ) : (
                 <>
                   <CheckCircle size={20} /> Guardar Actualización
+                </>
+              )}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  // Componente para editar información del cliente (solo admin)
+  const EditClientForm: React.FC = () => {
+    if (!selectedVehicle) return null;
+    
+    const [cliente, setCliente] = useState(selectedVehicle.cliente);
+    const [telefono, setTelefono] = useState(selectedVehicle.telefono || '');
+    const [problema, setProblema] = useState(selectedVehicle.problema || '');
+    const [saving, setSaving] = useState(false);
+
+    const handleSave = async () => {
+      setSaving(true);
+      const updated: Vehicle = {
+        ...selectedVehicle,
+        cliente,
+        telefono,
+        problema
+      };
+      
+      const success = await saveVehicle(updated);
+      if (success) {
+        setSelectedVehicle(updated);
+        showToast('✅ Información actualizada', 'success');
+        setShowEditClient(false);
+      } else {
+        showToast('❌ Error al actualizar', 'error');
+      }
+      setSaving(false);
+    };
+
+    return (
+      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+        <div className="bg-white rounded-lg max-w-md w-full">
+          <div className="bg-blue-600 text-white p-4 rounded-t-lg flex justify-between items-center">
+            <h2 className="text-xl font-bold">Editar Información del Cliente</h2>
+            <button onClick={() => setShowEditClient(false)} className="text-white hover:text-gray-200">
+              <X size={24} />
+            </button>
+          </div>
+          <div className="p-4 space-y-4">
+            <div>
+              <label className="block text-sm font-medium mb-1">Cliente *</label>
+              <input 
+                type="text" 
+                value={cliente} 
+                onChange={e => setCliente(e.target.value)} 
+                className="w-full p-2 border rounded"
+                placeholder="Nombre del cliente"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-1">Teléfono</label>
+              <input 
+                type="tel" 
+                value={telefono} 
+                onChange={e => setTelefono(e.target.value)} 
+                className="w-full p-2 border rounded"
+                placeholder="Número de contacto"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-1">Trabajo a Realizar</label>
+              <textarea 
+                value={problema} 
+                onChange={e => setProblema(e.target.value)} 
+                className="w-full p-2 border rounded h-24"
+                placeholder="Descripción del trabajo"
+              />
+            </div>
+            <button 
+              onClick={handleSave} 
+              disabled={!cliente.trim() || saving}
+              className="w-full bg-blue-600 text-white py-3 rounded-lg font-medium hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+            >
+              {saving ? (
+                <>
+                  <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white" />
+                  <span>Guardando...</span>
+                </>
+              ) : (
+                <>
+                  <Save size={20} /> Guardar Cambios
                 </>
               )}
             </button>
@@ -406,7 +507,18 @@ export default function TallerMecanicoApp() {
 
         <div className="p-4 space-y-4">
           <div className="bg-white rounded-lg border p-4">
-            <h3 className="font-semibold mb-3">Información del Cliente</h3>
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="font-semibold">Información del Cliente</h3>
+              {isAdmin && (
+                <button
+                  onClick={() => setShowEditClient(true)}
+                  className="text-blue-600 hover:text-blue-700 p-1.5 hover:bg-blue-50 rounded transition-colors"
+                  title="Editar información del cliente"
+                >
+                  <Edit2 size={18} />
+                </button>
+              )}
+            </div>
             <div className="space-y-2 text-sm">
               <p><span className="font-medium">Cliente:</span> {selectedVehicle.cliente}</p>
               {selectedVehicle.telefono && <p><span className="font-medium">Teléfono:</span> {selectedVehicle.telefono}</p>}
@@ -421,7 +533,11 @@ export default function TallerMecanicoApp() {
           </div>
           <div className="bg-white rounded-lg border p-4">
             <h3 className="font-semibold mb-2">Estado</h3>
-            <select value={selectedVehicle.estado} onChange={e => updateStatus(e.target.value)} className="w-full p-2 border rounded">
+            <select 
+              value={selectedVehicle.estado} 
+              onChange={e => updateStatus(e.target.value)} 
+              className="w-full p-2 border rounded"
+            >
               <option value="En proceso">En proceso</option>
               <option value="Esperando piezas">Esperando piezas</option>
               <option value="Listo para entrega">Listo para entrega</option>
@@ -464,7 +580,16 @@ export default function TallerMecanicoApp() {
               <div className="space-y-3">
                 {selectedVehicle.actualizaciones.map(upd => (
                   <div key={upd.id} className="border-l-4 border-blue-500 pl-3 py-2">
-                    <p className="text-xs text-gray-500 mb-1">{new Date(upd.fecha).toLocaleDateString('es-PE', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</p>
+                    <div className="flex items-center justify-between mb-1">
+                      <p className="text-xs text-gray-500">
+                        {new Date(upd.fecha).toLocaleDateString('es-PE', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                      </p>
+                      {upd.createdBy && (
+                        <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-medium">
+                          {upd.createdBy}
+                        </span>
+                      )}
+                    </div>
                     <p className="text-sm text-gray-700">{upd.descripcion}</p>
                     {upd.imagenes.length > 0 && (
                       <div className="grid grid-cols-3 gap-1 mt-2">
@@ -481,6 +606,33 @@ export default function TallerMecanicoApp() {
                 ))}
               </div>)}
           </div>
+
+          {/* Botón de eliminar vehículo (solo admin) */}
+          {isAdmin && (
+            <div className="bg-white rounded-lg border border-red-200 p-4">
+              <h3 className="font-semibold text-red-600 mb-2">Zona de Peligro</h3>
+              <p className="text-sm text-gray-600 mb-3">
+                Eliminar este vehículo removerá toda su información y no se puede deshacer.
+              </p>
+              <button
+                onClick={async () => {
+                  if (window.confirm(`¿Está seguro que desea eliminar el vehículo ${selectedVehicle.placa}?\n\nEsta acción no se puede deshacer.`)) {
+                    const success = await deleteVehicle(selectedVehicle.id);
+                    if (success) {
+                      showToast('✅ Vehículo eliminado', 'success');
+                      setSelectedVehicle(null);
+                    } else {
+                      showToast('❌ Error al eliminar', 'error');
+                    }
+                  }
+                }}
+                className="w-full bg-red-600 text-white py-2.5 rounded-lg font-medium hover:bg-red-700 flex items-center justify-center gap-2 transition-colors"
+              >
+                <Trash2 size={18} />
+                Eliminar Vehículo
+              </button>
+            </div>
+          )}
         </div>
       </div>
     );
@@ -499,21 +651,52 @@ export default function TallerMecanicoApp() {
 
   return (
     <div className="min-h-screen bg-gray-100 pb-20">
+      {/* Modal de Login */}
+      {!isAuthenticated && !authLoading && <LoginModal onLogin={login} />}
+
       <div className="bg-blue-600 text-white p-4 sticky top-0 z-30 shadow-lg">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Car size={28} />
-            <div>
-              <h1 className="text-xl font-bold">Taller Caltimer</h1>
+        <div className="flex items-center justify-between gap-2">
+          {/* Logo y título */}
+          <div className="flex items-center gap-2 min-w-0 flex-1">
+            <Car size={28} className="flex-shrink-0" />
+            <div className="min-w-0">
+              <h1 className="text-xl font-bold">Mecatronica Caltimer</h1>
               <p className="text-xs opacity-90">{filteredVehicles.length} de {vehicles.length} vehículos</p>
             </div>
           </div>
-          <button 
-            onClick={() => setShowSearch(!showSearch)} 
-            className="bg-white bg-opacity-20 hover:bg-opacity-30 p-2 rounded-lg transition-colors"
-          >
-            <Search size={20} />
-          </button>
+          
+          {/* Botones de acción */}
+          <div className="flex items-center gap-2 flex-shrink-0">
+            {/* Info de usuario */}
+            {session && (
+              <div className="flex items-center gap-2 bg-white bg-opacity-20 px-3 py-1.5 rounded-lg">
+                <User size={16} />
+                <div className="text-right">
+                  <p className="text-xs font-medium leading-tight">{session.name}</p>
+                  <p className="text-[10px] opacity-75 leading-tight">{session.role === 'admin' ? 'Admin' : 'Mecánico'}</p>
+                </div>
+              </div>
+            )}
+            
+            <button 
+              onClick={() => setShowSearch(!showSearch)} 
+              className="bg-white bg-opacity-20 hover:bg-opacity-30 p-2 rounded-lg transition-colors"
+              title="Buscar"
+            >
+              <Search size={20} />
+            </button>
+            
+            {/* Botón de logout */}
+            {session && (
+              <button 
+                onClick={logout} 
+                className="bg-white bg-opacity-20 hover:bg-opacity-30 p-2 rounded-lg transition-colors"
+                title="Cerrar sesión"
+              >
+                <LogOut size={20} />
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
@@ -577,16 +760,6 @@ export default function TallerMecanicoApp() {
                 className="col-span-2 px-3 py-2 border rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-blue-400 shadow-sm"
               />
             </div>
-            <select
-              value={filters.estado}
-              onChange={e => setFilters({ ...filters, estado: e.target.value })}
-              className="w-full px-3 py-2 border rounded-xl text-xs font-medium focus:outline-none focus:ring-2 focus:ring-green-400 bg-gradient-to-r from-gray-50 to-gray-100 border-gray-300 cursor-pointer hover:from-gray-100 hover:to-gray-200 transition-all shadow-sm"
-            >
-              <option value="">Todos los estados</option>
-              {ESTADOS_DISPONIBLES.map(estado => (
-                <option key={estado} value={estado}>{estado}</option>
-              ))}
-            </select>
             <div className="grid grid-cols-2 gap-2">
               <div>
                 <label className="block text-xs text-gray-600 mb-1 font-medium">Desde:</label>
@@ -658,18 +831,42 @@ export default function TallerMecanicoApp() {
           ))
         )}
       </div>
-      <button 
-        onClick={() => setShowNewVehicle(true)} 
-        disabled={!isOnline}
-        className={`fixed bottom-6 right-6 text-white p-4 rounded-full shadow-lg transition-colors z-30 ${
-          isOnline ? 'bg-blue-600 hover:bg-blue-700' : 'bg-gray-400 cursor-not-allowed'
-        }`}
-        title={isOnline ? 'Agregar vehículo' : 'Sin conexión - No se pueden agregar vehículos'}
-      >
-        <Plus size={28} />
-      </button>
+      {/* Botones flotantes */}
+      {isAuthenticated && (
+        <>
+          {/* Botón flotante para agregar vehículo */}
+          <button 
+            onClick={() => setShowNewVehicle(true)} 
+            disabled={!isOnline}
+            className={`fixed bottom-6 right-6 text-white p-3 rounded-full shadow-xl transition-all z-40 ${
+              isOnline ? 'bg-blue-600 hover:bg-blue-700 hover:scale-110' : 'bg-gray-400 cursor-not-allowed'
+            }`}
+            title={isOnline ? 'Agregar vehículo' : 'Sin conexión - No se pueden agregar vehículos'}
+          >
+            <Plus size={24} />
+          </button>
+
+          {/* Botón flotante para gestionar usuarios (solo admin) - arriba del de vehículos */}
+          {isAdmin && (
+            <button 
+              onClick={() => setShowUserManagement(true)} 
+              className="fixed bottom-24 right-6 bg-purple-600 hover:bg-purple-700 text-white p-3 rounded-full shadow-xl transition-all hover:scale-110 z-40"
+              title="Gestionar usuarios"
+            >
+              <Users size={24} />
+            </button>
+          )}
+        </>
+      )}
       {showNewVehicle && <NewVehicleForm />}
       {showNewUpdate && <NewUpdateForm />}
+      {showEditClient && <EditClientForm />}
+      {showUserManagement && session && (
+        <UserManagement 
+          currentUsername={session.username}
+          onClose={() => setShowUserManagement(false)}
+        />
+      )}
       {selectedVehicle && <VehicleDetail />}
       
       {/* Toast de notificación */}

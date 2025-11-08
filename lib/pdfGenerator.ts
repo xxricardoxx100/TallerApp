@@ -50,7 +50,7 @@ export async function generateVehiclePDF(vehicle: Vehicle): Promise<Blob> {
   doc.setTextColor(255, 255, 255);
   doc.setFontSize(20);
   doc.setFont('helvetica', 'bold');
-  doc.text('TALLER CALTIMER', 105, 15, { align: 'center' });
+  doc.text('MECATRONICA CALTIMER', 105, 15, { align: 'center' });
   
   doc.setFontSize(10);
   doc.setFont('helvetica', 'normal');
@@ -238,7 +238,7 @@ export async function shareVehiclePDFWhatsApp(vehicle: Vehicle, accessCode?: str
   }
   
   message += `Estado actual: ${vehicle.estado}\n\n`;
-  message += `Gracias por confiar en Taller Caltimer!`;
+  message += `Gracias por confiar en Mecatronica Caltimer!`;
   
   const encodedMessage = encodeURIComponent(message);
   const whatsappUrl = phoneNumber 
