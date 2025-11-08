@@ -1,5 +1,5 @@
 "use client";
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Car, Plus, ChevronRight, Save, X, CheckCircle, Search } from 'lucide-react';
 import { useVehicles } from '../hooks/useVehicles';
 import { useUploadImages } from '../hooks/useUploadImages';
@@ -37,6 +37,30 @@ export default function TallerMecanicoApp() {
     setToast({ message, type });
     setTimeout(() => setToast(null), 3000); // Se oculta después de 3 segundos
   };
+
+  // Manejar navegación del botón "Atrás" del navegador/teléfono
+  useEffect(() => {
+    const handlePopState = () => {
+      // Cuando el usuario usa el botón "Atrás"
+      if (selectedVehicle) {
+        setSelectedVehicle(null);
+      } else if (showNewVehicle) {
+        setShowNewVehicle(false);
+      } else if (showNewUpdate) {
+        setShowNewUpdate(false);
+      }
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, [selectedVehicle, showNewVehicle, showNewUpdate]);
+
+  // Agregar entrada al historial cuando se abre un modal/detalle
+  useEffect(() => {
+    if (selectedVehicle || showNewVehicle || showNewUpdate) {
+      window.history.pushState({ modal: true }, '');
+    }
+  }, [selectedVehicle, showNewVehicle, showNewUpdate]);
 
   // Vehículos filtrados (memoizados para no recalcular en cada render)
   const filteredVehicles = useMemo(() => {
