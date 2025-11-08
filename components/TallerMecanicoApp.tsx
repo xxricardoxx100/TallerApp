@@ -655,29 +655,38 @@ export default function TallerMecanicoApp() {
       {!isAuthenticated && !authLoading && <LoginModal onLogin={login} />}
 
       <div className="bg-blue-600 text-white p-4 sticky top-0 z-30 shadow-lg">
-        <div className="flex items-center justify-between gap-2">
-          {/* Logo y título */}
-          <div className="flex items-center gap-2 min-w-0 flex-1">
-            <Car size={28} className="flex-shrink-0" />
-            <div className="min-w-0">
+        {/* Primera fila: Logo, título y contador */}
+        <div className="flex items-center justify-between gap-2 mb-3">
+          <div className="flex items-center gap-3 flex-1">
+            <div className="bg-white rounded-lg p-1 flex-shrink-0 w-9 h-9 flex items-center justify-center">
+              <img 
+                src="/images/logo.png" 
+                alt="Logo" 
+                className="max-w-full max-h-full object-contain"
+              />
+            </div>
+            <div>
               <h1 className="text-xl font-bold">Mecatronica Caltimer</h1>
               <p className="text-xs opacity-90">{filteredVehicles.length} de {vehicles.length} vehículos</p>
             </div>
           </div>
+        </div>
+        
+        {/* Segunda fila: Info de usuario y botones de acción */}
+        <div className="flex items-center justify-between gap-2">
+          {/* Info de usuario */}
+          {session && (
+            <div className="flex items-center gap-2 bg-white bg-opacity-20 px-3 py-1.5 rounded-lg">
+              <User size={16} />
+              <div>
+                <p className="text-xs font-medium leading-tight">{session.name}</p>
+                <p className="text-[10px] opacity-75 leading-tight">{session.role === 'admin' ? 'Administrador' : 'Mecánico'}</p>
+              </div>
+            </div>
+          )}
           
           {/* Botones de acción */}
-          <div className="flex items-center gap-2 flex-shrink-0">
-            {/* Info de usuario */}
-            {session && (
-              <div className="flex items-center gap-2 bg-white bg-opacity-20 px-3 py-1.5 rounded-lg">
-                <User size={16} />
-                <div className="text-right">
-                  <p className="text-xs font-medium leading-tight">{session.name}</p>
-                  <p className="text-[10px] opacity-75 leading-tight">{session.role === 'admin' ? 'Admin' : 'Mecánico'}</p>
-                </div>
-              </div>
-            )}
-            
+          <div className="flex items-center gap-2">
             <button 
               onClick={() => setShowSearch(!showSearch)} 
               className="bg-white bg-opacity-20 hover:bg-opacity-30 p-2 rounded-lg transition-colors"

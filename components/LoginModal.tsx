@@ -99,12 +99,8 @@ export default function LoginModal({ onLogin }: LoginModalProps) {
           </button>
 
           {/* Help Text */}
-          <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
-            <p className="text-sm text-blue-800 font-medium mb-1">Usuario administrador:</p>
-            <p className="text-xs text-blue-700">
-              • <code className="bg-blue-100 px-1 rounded">admin / admin123</code>
-            </p>
-            <p className="text-xs text-gray-500 mt-2">
+          <div className="mt-4 p-3 bg-gray-50 border border-gray-200 rounded-lg">
+            <p className="text-xs text-gray-600 text-center">
               Los mecánicos deben usar las credenciales asignadas por el administrador
             </p>
           </div>
