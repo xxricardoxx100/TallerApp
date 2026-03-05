@@ -245,8 +245,10 @@ export default function AttendanceModal({ session, isAdmin, isOnline, onClose }:
               <div className="space-y-2">
                 {events.map(ev => {
                   const time = ev.event_time ? new Date(ev.event_time).toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit' }) : '';
-                  const hasLocation = typeof ev.location_lat === 'number' && typeof ev.location_lng === 'number';
-                  const mapsUrl = hasLocation ? `https://www.google.com/maps?q=${ev.location_lat},${ev.location_lng}` : '';
+                  const location = (typeof ev.location_lat === 'number' && typeof ev.location_lng === 'number')
+                    ? { lat: ev.location_lat, lng: ev.location_lng }
+                    : null;
+                  const mapsUrl = location ? `https://www.google.com/maps?q=${location.lat},${location.lng}` : '';
                   return (
                     <div
                       key={ev.id}
@@ -271,9 +273,9 @@ export default function AttendanceModal({ session, isAdmin, isOnline, onClose }:
                       <div className="text-right">
                         <p className="text-sm text-gray-700 font-medium">{time}</p>
                         {ev.created_by && <p className="text-[10px] text-gray-400">por {ev.created_by}</p>}
-                        {isAdmin && hasLocation && (
+                        {isAdmin && location && (
                           <div className="mt-1">
-                            <p className="text-[10px] text-gray-500">{ev.location_lat.toFixed(6)}, {ev.location_lng.toFixed(6)}</p>
+                            <p className="text-[10px] text-gray-500">{location.lat.toFixed(6)}, {location.lng.toFixed(6)}</p>
                             <a
                               href={mapsUrl}
                               target="_blank"
