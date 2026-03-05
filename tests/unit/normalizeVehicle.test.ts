@@ -6,6 +6,7 @@ describe('normalizeVehicle', () => {
     const v = normalizeVehicle(raw);
     expect(v.imagenes).toEqual([]);
     expect(v.actualizaciones).toEqual([]);
+    expect(v.pendientes).toEqual([]);
     expect(v.estado).toBe('En proceso');
   });
 

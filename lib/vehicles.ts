@@ -7,6 +7,13 @@ export interface VehicleUpdate {
   createdBy?: string; // Nombre del usuario que creó la actualización
 }
 
+export interface VehiclePending {
+  id: string;
+  text: string;
+  done: boolean;
+  createdAt: string;
+}
+
 export interface Vehicle {
   id: string;
   placa: string;
@@ -18,9 +25,12 @@ export interface Vehicle {
   problema?: string;
   imagenes: string[];
   thumbnails?: string[]; // Thumbnails opcionales
+  cotizacionImagen?: string; // Imagen de cotización (URL o dataURL)
+  cotizacionThumbnail?: string; // Thumbnail de cotización
   fechaIngreso: string;
   estado: string;
   actualizaciones: VehicleUpdate[];
+  pendientes?: VehiclePending[]; // Lista de pendientes (checklist)
   accessCode?: string; // Código de acceso para portal del cliente
 }
 
@@ -37,6 +47,8 @@ export function normalizeVehicle(raw: any): Vehicle {
     problema: raw.problema || '',
     imagenes: Array.isArray(raw.imagenes) ? raw.imagenes.filter(Boolean) : [],
     thumbnails: Array.isArray(raw.thumbnails) ? raw.thumbnails.filter(Boolean) : [],
+    cotizacionImagen: typeof raw.cotizacionImagen === 'string' ? raw.cotizacionImagen : undefined,
+    cotizacionThumbnail: typeof raw.cotizacionThumbnail === 'string' ? raw.cotizacionThumbnail : undefined,
     fechaIngreso: raw.fechaIngreso || new Date().toISOString(),
     estado: raw.estado || 'En proceso',
     accessCode: raw.accessCode || undefined, // Incluir código de acceso si existe
@@ -49,6 +61,16 @@ export function normalizeVehicle(raw: any): Vehicle {
           thumbnails: Array.isArray(u.thumbnails) ? u.thumbnails.filter(Boolean) : [],
           createdBy: u.createdBy || undefined
         }))
+      : [],
+    pendientes: Array.isArray(raw.pendientes)
+      ? raw.pendientes
+          .map((p: any) => ({
+            id: String(p.id ?? ''),
+            text: String(p.text ?? ''),
+            done: Boolean(p.done),
+            createdAt: p.createdAt || new Date().toISOString(),
+          }))
+          .filter((p: any) => p.id && p.text)
       : []
   };
 }

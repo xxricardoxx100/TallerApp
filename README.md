@@ -70,3 +70,9 @@ Si necesitas APK:
 ## 7) Solución de problemas rápida
 - “new row violates row-level security policy”: ejecuta `supabase/policies.sql` y `supabase/storage_policies.sql`.
 - Imágenes no cargan: verifica que el bucket exista, que haya políticas, y que en la DB se guarde una URL válida (no null).
+
+### Hot reload no funciona (Windows)
+Si al editar código no se actualiza y sientes que debes reiniciar el server, este repo incluye un fix habilitando polling del watcher de Next:
+- `.env.development.local` contiene `WATCHPACK_POLLING=true`.
+
+Después de crear/modificar ese archivo, reinicia el servidor **una sola vez**.

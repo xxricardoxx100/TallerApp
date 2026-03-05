@@ -1,14 +1,16 @@
 "use client";
-import React, { useState, useMemo, useEffect } from 'react';
-import { Car, Plus, ChevronRight, Save, X, CheckCircle, Search, FileText, Share2, Download, LogOut, User, Edit2, Trash2, Users } from 'lucide-react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
+import { Car, Plus, ChevronRight, Save, X, CheckCircle, Search, FileText, Share2, Download, LogOut, User, Edit2, Trash2, Users, Clock } from 'lucide-react';
 import { useVehicles } from '../hooks/useVehicles';
 import { useUploadImages } from '../hooks/useUploadImages';
 import { useAuth } from '../hooks/useAuth';
 import { Vehicle } from '../lib/vehicles';
+import { compressAndCreateThumbnail } from '../lib/imageCompression';
 import { filterVehicles, SearchFilters, ESTADOS_DISPONIBLES } from '../lib/search';
 import { downloadVehiclePDF, shareVehiclePDFWhatsApp } from '../lib/pdfGenerator';
 import LoginModal from './LoginModal';
 import UserManagement from './UserManagement';
+import AttendanceModal from './AttendanceModal';
 
 const STATUS_TABS = [
   { label: 'Todos', value: '' },
@@ -17,6 +19,423 @@ const STATUS_TABS = [
   { label: 'Listo para entrega', value: 'Listo para entrega' },
   { label: 'Finalizado', value: 'Entregado' }
 ] as const;
+
+type ToastType = 'success' | 'error';
+
+type VehicleDetailModalProps = {
+  vehicle: Vehicle;
+  isAdmin: boolean;
+  onClose: () => void;
+  onVehicleChange: (updated: Vehicle) => void;
+  onRequestNewUpdate: () => void;
+  onRequestEditClient: () => void;
+  saveVehicle: (vehicle: Vehicle) => Promise<boolean>;
+  deleteVehicle: (id: string) => Promise<boolean>;
+  showToast: (message: string, type?: ToastType) => void;
+};
+
+function VehicleDetailModal({
+  vehicle,
+  isAdmin,
+  onClose,
+  onVehicleChange,
+  onRequestNewUpdate,
+  onRequestEditClient,
+  saveVehicle,
+  deleteVehicle,
+  showToast,
+}: VehicleDetailModalProps) {
+  const [modalImage, setModalImage] = useState<string | null>(null);
+  const [generatingPDF, setGeneratingPDF] = useState(false);
+  const [savingQuote, setSavingQuote] = useState(false);
+  const [newPending, setNewPending] = useState('');
+  const [savingPending, setSavingPending] = useState(false);
+
+  const saveCurrentVehicle = async (updated: Vehicle, successMsg?: string) => {
+    const ok = await saveVehicle(updated);
+    if (ok) {
+      onVehicleChange(updated);
+      if (successMsg) showToast(successMsg, 'success');
+    } else {
+      showToast('❌ Error al guardar cambios', 'error');
+    }
+    return ok;
+  };
+
+  const updateStatus = async (estado: string) => {
+    const updated = { ...vehicle, estado } as Vehicle;
+    await saveCurrentVehicle(updated);
+  };
+
+  const handleQuoteFile = async (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    const file = files[0];
+
+    setSavingQuote(true);
+    try {
+      const img = await compressAndCreateThumbnail(file);
+      const updated: Vehicle = {
+        ...vehicle,
+        cotizacionImagen: img.original,
+        cotizacionThumbnail: img.thumbnail,
+      };
+      await saveCurrentVehicle(updated, '✅ Cotización actualizada');
+    } catch (e) {
+      console.error('Error subiendo cotización:', e);
+      showToast('❌ Error al procesar la imagen', 'error');
+    } finally {
+      setSavingQuote(false);
+    }
+  };
+
+  const togglePending = (pendingId: string) => {
+    const pendientes = Array.isArray(vehicle.pendientes) ? vehicle.pendientes : [];
+    const target = pendientes.find(p => p.id === pendingId);
+    if (!target) return;
+
+    const nextDone = !target.done;
+    const action = nextDone ? 'marcar como hecho' : 'desmarcar';
+    const confirmed = window.confirm(`¿Deseas ${action} este pendiente?\n\n${target.text}`);
+    if (!confirmed) {
+      // Forzar re-render para revertir el checkbox (porque el navegador ya lo alternó).
+      onVehicleChange({ ...vehicle });
+      return;
+    }
+
+    const updatedPendientes = pendientes.map(p => (p.id === pendingId ? { ...p, done: nextDone } : p));
+    const updatedVehicle: Vehicle = { ...vehicle, pendientes: updatedPendientes };
+
+    // UI instantánea
+    onVehicleChange(updatedVehicle);
+
+    // Guardar en segundo plano (sin bloquear)
+    void (async () => {
+      const ok = await saveVehicle(updatedVehicle);
+      if (!ok) {
+        showToast('❌ Error al guardar pendientes', 'error');
+      }
+    })();
+  };
+
+  const addPending = async () => {
+    const text = newPending.trim();
+    if (!text) return;
+
+    const pendientes = Array.isArray(vehicle.pendientes) ? vehicle.pendientes : [];
+    const updatedPendientes = [
+      ...pendientes,
+      { id: `pend-${Date.now()}`, text, done: false, createdAt: new Date().toISOString() },
+    ];
+
+    setSavingPending(true);
+    try {
+      const ok = await saveCurrentVehicle({ ...vehicle, pendientes: updatedPendientes }, '✅ Pendiente agregado');
+      if (ok) setNewPending('');
+    } finally {
+      setSavingPending(false);
+    }
+  };
+
+  const handleDownloadPDF = async () => {
+    setGeneratingPDF(true);
+    try {
+      await downloadVehiclePDF(vehicle);
+      showToast('PDF descargado exitosamente');
+    } catch (error) {
+      console.error('Error generando PDF:', error);
+      showToast('Error al generar PDF');
+    } finally {
+      setGeneratingPDF(false);
+    }
+  };
+
+  const handleShareWhatsApp = async () => {
+    setGeneratingPDF(true);
+    try {
+      await shareVehiclePDFWhatsApp(vehicle, vehicle.accessCode);
+      showToast('Abriendo WhatsApp...');
+    } catch (error) {
+      console.error('Error compartiendo por WhatsApp:', error);
+      showToast('Error al compartir por WhatsApp');
+    } finally {
+      setGeneratingPDF(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-white z-40 overflow-y-auto">
+      <div className="sticky top-0 bg-blue-600 text-white p-4 flex items-center gap-3 shadow-md">
+        <button onClick={onClose} className="text-white"><X size={24} /></button>
+        <div className="flex-1">
+          <h2 className="text-lg font-bold">{vehicle.placa}</h2>
+          <p className="text-sm opacity-90">{vehicle.marca} {vehicle.modelo}</p>
+        </div>
+      </div>
+
+      {/* Botones de acción PDF y WhatsApp */}
+      <div className="bg-gradient-to-r from-blue-50 to-blue-100 p-3 border-b border-blue-200">
+        <div className="flex gap-2">
+          <button
+            onClick={handleDownloadPDF}
+            disabled={generatingPDF}
+            className="flex-1 flex items-center justify-center gap-2 bg-white text-blue-600 px-4 py-2.5 rounded-lg font-medium shadow-sm hover:shadow-md transition-all disabled:opacity-50 disabled:cursor-not-allowed border border-blue-200"
+          >
+            {generatingPDF ? (
+              <>
+                <div className="animate-spin rounded-full h-4 w-4 border-2 border-blue-600 border-t-transparent"></div>
+                <span className="text-sm">Generando...</span>
+              </>
+            ) : (
+              <>
+                <Download size={18} />
+                <span className="text-sm">Descargar PDF</span>
+              </>
+            )}
+          </button>
+
+          <button
+            onClick={handleShareWhatsApp}
+            disabled={generatingPDF}
+            className="flex-1 flex items-center justify-center gap-2 bg-green-500 text-white px-4 py-2.5 rounded-lg font-medium shadow-sm hover:shadow-md hover:bg-green-600 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {generatingPDF ? (
+              <>
+                <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
+                <span className="text-sm">Preparando...</span>
+              </>
+            ) : (
+              <>
+                <Share2 size={18} />
+                <span className="text-sm">Enviar WhatsApp</span>
+              </>
+            )}
+          </button>
+        </div>
+      </div>
+
+      <div className="p-4 space-y-4">
+        <div className="bg-white rounded-lg border p-4">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="font-semibold">Información del Cliente</h3>
+            {isAdmin && (
+              <button
+                onClick={onRequestEditClient}
+                className="text-blue-600 hover:text-blue-700 p-1.5 hover:bg-blue-50 rounded transition-colors"
+                title="Editar información del cliente"
+              >
+                <Edit2 size={18} />
+              </button>
+            )}
+          </div>
+          <div className="space-y-2 text-sm">
+            <p><span className="font-medium">Cliente:</span> {vehicle.cliente}</p>
+            {vehicle.telefono && <p><span className="font-medium">Teléfono:</span> {vehicle.telefono}</p>}
+            <p><span className="font-medium">Ingreso:</span> {new Date(vehicle.fechaIngreso).toLocaleDateString('es-PE', { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</p>
+            {vehicle.accessCode && (
+              <p>
+                <span className="font-medium">Código de acceso:</span>{' '}
+                <span className="font-mono text-blue-600 font-semibold">{vehicle.accessCode}</span>
+              </p>
+            )}
+          </div>
+        </div>
+
+        <div className="bg-white rounded-lg border p-4">
+          <h3 className="font-semibold mb-2">Estado</h3>
+          <select
+            value={vehicle.estado}
+            onChange={e => void updateStatus(e.target.value)}
+            className="w-full p-2 border rounded"
+          >
+            <option value="En proceso">En proceso</option>
+            <option value="Esperando piezas">Esperando piezas</option>
+            <option value="Listo para entrega">Listo para entrega</option>
+            <option value="Entregado">Entregado</option>
+          </select>
+        </div>
+
+        {!!vehicle.problema && (
+          <div className="bg-white rounded-lg border p-4">
+            <h3 className="font-semibold mb-2">Trabajo a Realizar</h3>
+            <p className="text-sm text-gray-700">{vehicle.problema}</p>
+          </div>
+        )}
+
+        {/* Cotización */}
+        <div className="bg-white rounded-lg border p-4">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="font-semibold">Cotización</h3>
+            <label className={`text-sm px-3 py-1.5 rounded-lg border cursor-pointer transition-colors ${
+              savingQuote ? 'bg-gray-100 text-gray-500 border-gray-200 cursor-not-allowed' : 'bg-white text-blue-600 border-blue-200 hover:bg-blue-50'
+            }`}>
+              {vehicle.cotizacionImagen ? 'Actualizar imagen' : 'Subir imagen'}
+              <input
+                type="file"
+                accept="image/*"
+                className="hidden"
+                disabled={savingQuote}
+                onChange={e => void handleQuoteFile(e.target.files)}
+              />
+            </label>
+          </div>
+
+          {vehicle.cotizacionImagen ? (
+            <div className="grid grid-cols-3 gap-2">
+              <button
+                onClick={() => setModalImage(vehicle.cotizacionImagen!)}
+                className="overflow-hidden rounded"
+                title="Ver cotización"
+              >
+                <img
+                  src={vehicle.cotizacionThumbnail || vehicle.cotizacionImagen}
+                  alt="cotizacion"
+                  className="w-full h-20 object-cover rounded-sm"
+                  onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                />
+              </button>
+            </div>
+          ) : (
+            <p className="text-sm text-gray-500">No hay imagen de cotización registrada.</p>
+          )}
+          {savingQuote && <p className="text-xs text-blue-600 mt-2">Procesando imagen...</p>}
+        </div>
+
+        {/* Pendientes */}
+        <div className="bg-white rounded-lg border p-4">
+          <h3 className="font-semibold mb-3">Pendientes del vehículo</h3>
+
+          <div className="flex gap-2 mb-3">
+            <input
+              value={newPending}
+              onChange={e => setNewPending(e.target.value)}
+              placeholder="Agregar pendiente..."
+              className="flex-1 px-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+              disabled={savingPending}
+            />
+            <button
+              onClick={() => void addPending()}
+              disabled={savingPending || !newPending.trim()}
+              className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium disabled:bg-gray-400 disabled:cursor-not-allowed"
+            >
+              Agregar
+            </button>
+          </div>
+
+          {(!vehicle.pendientes || vehicle.pendientes.length === 0) ? (
+            <p className="text-sm text-gray-500">No hay pendientes.</p>
+          ) : (
+            <div className="space-y-2">
+              {vehicle.pendientes.map(p => (
+                <label
+                  key={p.id}
+                  className="flex items-center gap-3 p-3 border border-gray-200 rounded hover:bg-gray-50 cursor-pointer"
+                >
+                  <input
+                    type="checkbox"
+                    checked={!!p.done}
+                    onChange={() => togglePending(p.id)}
+                    className="h-4 w-4"
+                  />
+                  <span className={`text-sm ${p.done ? 'line-through text-gray-400' : 'text-gray-800'}`}>{p.text}</span>
+                </label>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {vehicle.imagenes.length > 0 && (
+          <div className="bg-white rounded-lg border p-4">
+            <h3 className="font-semibold mb-3">Imágenes Iniciales</h3>
+            <div className="grid grid-cols-3 gap-2">
+              {vehicle.imagenes.map((img, i) => {
+                const thumbnailSrc = vehicle.thumbnails?.[i] || img;
+                return (
+                  <button key={i} onClick={() => setModalImage(img)} className="overflow-hidden rounded">
+                    <img src={thumbnailSrc} alt={`vehiculo-${i}`} className="w-full h-20 object-cover rounded-sm" onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {modalImage && (
+          <div className="fixed inset-0 bg-black bg-opacity-80 flex items-center justify-center z-50 p-4" onClick={() => setModalImage(null)}>
+            <button onClick={e => { e.stopPropagation(); setModalImage(null); }} className="absolute top-6 right-6 text-white bg-black bg-opacity-30 p-2 rounded-full" aria-label="Cerrar imagen"><X size={28} /></button>
+            <img src={modalImage} alt="Imagen ampliada" className="max-h-[90vh] max-w-[90vw] object-contain rounded" onClick={e => e.stopPropagation()} />
+          </div>
+        )}
+
+        <div className="bg-white rounded-lg border p-4">
+          <div className="flex justify-between items-center mb-3">
+            <h3 className="font-semibold">Actualizaciones</h3>
+            <button onClick={onRequestNewUpdate} className="bg-green-600 text-white px-3 py-1 rounded-lg text-sm flex items-center gap-1"><Plus size={16} /> Nueva</button>
+          </div>
+          {vehicle.actualizaciones.length === 0 ? (
+            <p className="text-sm text-gray-500 text-center py-4">No hay actualizaciones aún</p>
+          ) : (
+            <div className="space-y-3">
+              {vehicle.actualizaciones.map(upd => (
+                <div key={upd.id} className="border-l-4 border-blue-500 pl-3 py-2">
+                  <div className="flex items-center justify-between mb-1">
+                    <p className="text-xs text-gray-500">
+                      {new Date(upd.fecha).toLocaleDateString('es-PE', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                    </p>
+                    {upd.createdBy && (
+                      <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-medium">
+                        {upd.createdBy}
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-sm text-gray-700">{upd.descripcion}</p>
+                  {upd.imagenes.length > 0 && (
+                    <div className="grid grid-cols-3 gap-1 mt-2">
+                      {upd.imagenes.map((img, i) => {
+                        const thumbnailSrc = upd.thumbnails?.[i] || img;
+                        return (
+                          <button key={i} onClick={() => setModalImage(img)} className="overflow-hidden rounded">
+                            <img src={thumbnailSrc} alt={`update-${i}`} className="w-full h-20 object-cover rounded" onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Botón de eliminar vehículo (solo admin) */}
+        {isAdmin && (
+          <div className="bg-white rounded-lg border border-red-200 p-4">
+            <h3 className="font-semibold text-red-600 mb-2">Zona de Peligro</h3>
+            <p className="text-sm text-gray-600 mb-3">
+              Eliminar este vehículo removerá toda su información y no se puede deshacer.
+            </p>
+            <button
+              onClick={async () => {
+                if (window.confirm(`¿Está seguro que desea eliminar el vehículo ${vehicle.placa}?\n\nEsta acción no se puede deshacer.`)) {
+                  const success = await deleteVehicle(vehicle.id);
+                  if (success) {
+                    showToast('✅ Vehículo eliminado', 'success');
+                    onClose();
+                  } else {
+                    showToast('❌ Error al eliminar', 'error');
+                  }
+                }
+              }}
+              className="w-full bg-red-600 text-white py-2.5 rounded-lg font-medium hover:bg-red-700 flex items-center justify-center gap-2 transition-colors"
+            >
+              <Trash2 size={18} />
+              Eliminar Vehículo
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
 
 export default function TallerMecanicoApp() {
   const { vehicles, loading, saveStatus, isOnline, isFromCache, addVehicle, addUpdate, saveVehicle, deleteVehicle } = useVehicles();
@@ -27,6 +446,7 @@ export default function TallerMecanicoApp() {
   const [showSearch, setShowSearch] = useState(false);
   const [showEditClient, setShowEditClient] = useState(false);
   const [showUserManagement, setShowUserManagement] = useState(false);
+  const [showAttendance, setShowAttendance] = useState(false);
   
   // Estado de filtros de búsqueda
   const [filters, setFilters] = useState<SearchFilters>({
@@ -39,6 +459,7 @@ export default function TallerMecanicoApp() {
 
   // Estado para notificaciones toast
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+  const toastTimeoutRef = useRef<number | null>(null);
 
   // Sincronizar selectedVehicle cuando cambian los vehicles
   useEffect(() => {
@@ -52,8 +473,23 @@ export default function TallerMecanicoApp() {
 
   const showToast = (message: string, type: 'success' | 'error' = 'success') => {
     setToast({ message, type });
-    setTimeout(() => setToast(null), 3000); // Se oculta después de 3 segundos
+    if (toastTimeoutRef.current) {
+      window.clearTimeout(toastTimeoutRef.current);
+    }
+    toastTimeoutRef.current = window.setTimeout(() => {
+      setToast(null);
+      toastTimeoutRef.current = null;
+    }, 3000); // Se oculta después de 3 segundos
   };
+
+  useEffect(() => {
+    return () => {
+      if (toastTimeoutRef.current) {
+        window.clearTimeout(toastTimeoutRef.current);
+        toastTimeoutRef.current = null;
+      }
+    };
+  }, []);
 
   // Manejar navegación del botón "Atrás" del navegador/teléfono
   useEffect(() => {
@@ -416,228 +852,6 @@ export default function TallerMecanicoApp() {
     );
   };
 
-  const VehicleDetail: React.FC = () => {
-    const [modalImage, setModalImage] = useState<string | null>(null);
-    const [generatingPDF, setGeneratingPDF] = useState(false);
-    
-    if (!selectedVehicle) return null;
-    
-    const updateStatus = async (estado: string) => {
-      const updated = { ...selectedVehicle, estado } as Vehicle;
-      const ok = await saveVehicle(updated);
-      if (ok) setSelectedVehicle(updated);
-    };
-
-    const handleDownloadPDF = async () => {
-      setGeneratingPDF(true);
-      try {
-        await downloadVehiclePDF(selectedVehicle);
-        showToast('PDF descargado exitosamente');
-      } catch (error) {
-        console.error('Error generando PDF:', error);
-        showToast('Error al generar PDF');
-      } finally {
-        setGeneratingPDF(false);
-      }
-    };
-
-    const handleShareWhatsApp = async () => {
-      setGeneratingPDF(true);
-      try {
-        await shareVehiclePDFWhatsApp(selectedVehicle, selectedVehicle.accessCode);
-        showToast('Abriendo WhatsApp...');
-      } catch (error) {
-        console.error('Error compartiendo por WhatsApp:', error);
-        showToast('Error al compartir por WhatsApp');
-      } finally {
-        setGeneratingPDF(false);
-      }
-    };
-
-    return (
-      <div className="fixed inset-0 bg-white z-40 overflow-y-auto">
-        <div className="sticky top-0 bg-blue-600 text-white p-4 flex items-center gap-3 shadow-md">
-          <button onClick={() => setSelectedVehicle(null)} className="text-white"><X size={24} /></button>
-          <div className="flex-1">
-            <h2 className="text-lg font-bold">{selectedVehicle.placa}</h2>
-            <p className="text-sm opacity-90">{selectedVehicle.marca} {selectedVehicle.modelo}</p>
-          </div>
-        </div>
-
-        {/* Botones de acción PDF y WhatsApp */}
-        <div className="bg-gradient-to-r from-blue-50 to-blue-100 p-3 border-b border-blue-200">
-          <div className="flex gap-2">
-            <button
-              onClick={handleDownloadPDF}
-              disabled={generatingPDF}
-              className="flex-1 flex items-center justify-center gap-2 bg-white text-blue-600 px-4 py-2.5 rounded-lg font-medium shadow-sm hover:shadow-md transition-all disabled:opacity-50 disabled:cursor-not-allowed border border-blue-200"
-            >
-              {generatingPDF ? (
-                <>
-                  <div className="animate-spin rounded-full h-4 w-4 border-2 border-blue-600 border-t-transparent"></div>
-                  <span className="text-sm">Generando...</span>
-                </>
-              ) : (
-                <>
-                  <Download size={18} />
-                  <span className="text-sm">Descargar PDF</span>
-                </>
-              )}
-            </button>
-            
-            <button
-              onClick={handleShareWhatsApp}
-              disabled={generatingPDF}
-              className="flex-1 flex items-center justify-center gap-2 bg-green-500 text-white px-4 py-2.5 rounded-lg font-medium shadow-sm hover:shadow-md hover:bg-green-600 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {generatingPDF ? (
-                <>
-                  <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
-                  <span className="text-sm">Preparando...</span>
-                </>
-              ) : (
-                <>
-                  <Share2 size={18} />
-                  <span className="text-sm">Enviar WhatsApp</span>
-                </>
-              )}
-            </button>
-          </div>
-        </div>
-
-        <div className="p-4 space-y-4">
-          <div className="bg-white rounded-lg border p-4">
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="font-semibold">Información del Cliente</h3>
-              {isAdmin && (
-                <button
-                  onClick={() => setShowEditClient(true)}
-                  className="text-blue-600 hover:text-blue-700 p-1.5 hover:bg-blue-50 rounded transition-colors"
-                  title="Editar información del cliente"
-                >
-                  <Edit2 size={18} />
-                </button>
-              )}
-            </div>
-            <div className="space-y-2 text-sm">
-              <p><span className="font-medium">Cliente:</span> {selectedVehicle.cliente}</p>
-              {selectedVehicle.telefono && <p><span className="font-medium">Teléfono:</span> {selectedVehicle.telefono}</p>}
-              <p><span className="font-medium">Ingreso:</span> {new Date(selectedVehicle.fechaIngreso).toLocaleDateString('es-PE', { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</p>
-              {selectedVehicle.accessCode && (
-                <p>
-                  <span className="font-medium">Código de acceso:</span>{' '}
-                  <span className="font-mono text-blue-600 font-semibold">{selectedVehicle.accessCode}</span>
-                </p>
-              )}
-            </div>
-          </div>
-          <div className="bg-white rounded-lg border p-4">
-            <h3 className="font-semibold mb-2">Estado</h3>
-            <select 
-              value={selectedVehicle.estado} 
-              onChange={e => updateStatus(e.target.value)} 
-              className="w-full p-2 border rounded"
-            >
-              <option value="En proceso">En proceso</option>
-              <option value="Esperando piezas">Esperando piezas</option>
-              <option value="Listo para entrega">Listo para entrega</option>
-              <option value="Entregado">Entregado</option>
-            </select>
-          </div>
-          {!!selectedVehicle.problema && (
-            <div className="bg-white rounded-lg border p-4">
-              <h3 className="font-semibold mb-2">Trabajo a Realizar</h3>
-              <p className="text-sm text-gray-700">{selectedVehicle.problema}</p>
-            </div>)}
-          {selectedVehicle.imagenes.length > 0 && (
-            <div className="bg-white rounded-lg border p-4">
-              <h3 className="font-semibold mb-3">Imágenes Iniciales</h3>
-              <div className="grid grid-cols-3 gap-2">
-                {selectedVehicle.imagenes.map((img, i) => {
-                  // Usar thumbnail si está disponible, sino la imagen original
-                  const thumbnailSrc = selectedVehicle.thumbnails?.[i] || img;
-                  return (
-                    <button key={i} onClick={() => setModalImage(img)} className="overflow-hidden rounded">
-                      <img src={thumbnailSrc} alt={`vehiculo-${i}`} className="w-full h-20 object-cover rounded-sm" onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }} />
-                    </button>
-                  );
-                })}
-              </div>
-            </div>)}
-          {modalImage && (
-            <div className="fixed inset-0 bg-black bg-opacity-80 flex items-center justify-center z-50 p-4" onClick={() => setModalImage(null)}>
-              <button onClick={e => { e.stopPropagation(); setModalImage(null); }} className="absolute top-6 right-6 text-white bg-black bg-opacity-30 p-2 rounded-full" aria-label="Cerrar imagen"><X size={28} /></button>
-              <img src={modalImage} alt="Imagen ampliada" className="max-h-[90vh] max-w-[90vw] object-contain rounded" onClick={e => e.stopPropagation()} />
-            </div>)}
-          <div className="bg-white rounded-lg border p-4">
-            <div className="flex justify-between items-center mb-3">
-              <h3 className="font-semibold">Actualizaciones</h3>
-              <button onClick={() => setShowNewUpdate(true)} className="bg-green-600 text-white px-3 py-1 rounded-lg text-sm flex items-center gap-1"><Plus size={16} /> Nueva</button>
-            </div>
-            {selectedVehicle.actualizaciones.length === 0 ? (
-              <p className="text-sm text-gray-500 text-center py-4">No hay actualizaciones aún</p>
-            ) : (
-              <div className="space-y-3">
-                {selectedVehicle.actualizaciones.map(upd => (
-                  <div key={upd.id} className="border-l-4 border-blue-500 pl-3 py-2">
-                    <div className="flex items-center justify-between mb-1">
-                      <p className="text-xs text-gray-500">
-                        {new Date(upd.fecha).toLocaleDateString('es-PE', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
-                      </p>
-                      {upd.createdBy && (
-                        <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-medium">
-                          {upd.createdBy}
-                        </span>
-                      )}
-                    </div>
-                    <p className="text-sm text-gray-700">{upd.descripcion}</p>
-                    {upd.imagenes.length > 0 && (
-                      <div className="grid grid-cols-3 gap-1 mt-2">
-                        {upd.imagenes.map((img, i) => {
-                          const thumbnailSrc = upd.thumbnails?.[i] || img;
-                          return (
-                            <button key={i} onClick={() => setModalImage(img)} className="overflow-hidden rounded">
-                              <img src={thumbnailSrc} alt={`update-${i}`} className="w-full h-20 object-cover rounded" onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }} />
-                            </button>
-                          );
-                        })}
-                      </div>)}
-                  </div>
-                ))}
-              </div>)}
-          </div>
-
-          {/* Botón de eliminar vehículo (solo admin) */}
-          {isAdmin && (
-            <div className="bg-white rounded-lg border border-red-200 p-4">
-              <h3 className="font-semibold text-red-600 mb-2">Zona de Peligro</h3>
-              <p className="text-sm text-gray-600 mb-3">
-                Eliminar este vehículo removerá toda su información y no se puede deshacer.
-              </p>
-              <button
-                onClick={async () => {
-                  if (window.confirm(`¿Está seguro que desea eliminar el vehículo ${selectedVehicle.placa}?\n\nEsta acción no se puede deshacer.`)) {
-                    const success = await deleteVehicle(selectedVehicle.id);
-                    if (success) {
-                      showToast('✅ Vehículo eliminado', 'success');
-                      setSelectedVehicle(null);
-                    } else {
-                      showToast('❌ Error al eliminar', 'error');
-                    }
-                  }
-                }}
-                className="w-full bg-red-600 text-white py-2.5 rounded-lg font-medium hover:bg-red-700 flex items-center justify-center gap-2 transition-colors"
-              >
-                <Trash2 size={18} />
-                Eliminar Vehículo
-              </button>
-            </div>
-          )}
-        </div>
-      </div>
-    );
-  };
-
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-100 flex items-center justify-center">
@@ -694,6 +908,17 @@ export default function TallerMecanicoApp() {
             >
               <Search size={20} />
             </button>
+
+            {/* Botón de asistencia */}
+            {session && (
+              <button
+                onClick={() => setShowAttendance(true)}
+                className="bg-white bg-opacity-20 hover:bg-opacity-30 p-2 rounded-lg transition-colors"
+                title="Asistencia"
+              >
+                <Clock size={20} />
+              </button>
+            )}
             
             {/* Botón de logout */}
             {session && (
@@ -876,7 +1101,27 @@ export default function TallerMecanicoApp() {
           onClose={() => setShowUserManagement(false)}
         />
       )}
-      {selectedVehicle && <VehicleDetail />}
+      {showAttendance && session && (
+        <AttendanceModal
+          session={session}
+          isAdmin={isAdmin}
+          isOnline={isOnline}
+          onClose={() => setShowAttendance(false)}
+        />
+      )}
+      {selectedVehicle && (
+        <VehicleDetailModal
+          vehicle={selectedVehicle}
+          isAdmin={isAdmin}
+          onClose={() => setSelectedVehicle(null)}
+          onVehicleChange={setSelectedVehicle}
+          onRequestNewUpdate={() => setShowNewUpdate(true)}
+          onRequestEditClient={() => setShowEditClient(true)}
+          saveVehicle={saveVehicle}
+          deleteVehicle={deleteVehicle}
+          showToast={showToast}
+        />
+      )}
       
       {/* Toast de notificación */}
       {toast && (

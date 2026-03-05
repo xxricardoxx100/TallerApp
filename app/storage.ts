@@ -15,15 +15,15 @@ async function dataUrlToBlob(dataUrl: string) { const res = await fetch(dataUrl)
 const initStorage = async () => {
   if (typeof window === 'undefined' || (window as any).storage) return;
   if (useSupabase && supabase) {
-    let supabaseAvailable = true;
-    try { await supabase.storage.from(bucket).list('', { limit: 1 }); console.log(`Supabase storage: bucket "${bucket}" accesible`); }
-    catch (err) { supabaseAvailable = false; console.error(`Supabase storage inaccesible: ${bucket}`, err); }
-    if (!supabaseAvailable) {
-      (window as any).storage = {
-        async list(prefix = 'vehicle:') { try { const keys = Object.keys(localStorage).filter(k => k.startsWith(prefix)); return { keys }; } catch { return { keys: [] }; } },
-        async get(key: string) { try { const value = localStorage.getItem(key); return value ? { value } : null; } catch { return null; } },
-        async set(key: string, value: any) { localStorage.setItem(key, typeof value === 'string' ? value : JSON.stringify(value)); return true; }
-      }; return;
+    // Importante: la tabla `vehicles` (Postgres) debe funcionar aunque el bucket no sea accesible.
+    // Si el bucket falla, se deshabilita la subida de imágenes, pero NO se cae a localStorage.
+    let storageAvailable = true;
+    try {
+      await supabase.storage.from(bucket).list('', { limit: 1 });
+      console.log(`Supabase storage: bucket "${bucket}" accesible`);
+    } catch (err) {
+      storageAvailable = false;
+      console.error(`Supabase storage inaccesible: ${bucket}`, err);
     }
     (window as any).storage = {
       async list(prefix = 'vehicle:', full = false) {
@@ -33,7 +33,10 @@ const initStorage = async () => {
           if (error) throw error; const rows: any[] = (data as any[]) || []; const keys = rows.map((r: any) => `${prefix}${r.id}`);
           if (full) { const items = rows.map((r: any) => ({ key: `${prefix}${r.id}`, value: JSON.stringify(r.data) })); return { keys, items }; }
           return { keys };
-        } catch (e) { console.error('Error listando vehículos:', e); return { keys: [] }; }
+        } catch (e) {
+          console.error('Error listando vehículos:', e);
+          throw e;
+        }
       },
       async get(key: string) {
         try {
@@ -44,26 +47,54 @@ const initStorage = async () => {
             if (!obj || typeof obj !== 'object') return obj;
             const parseToPath = (url: string) => { try { if (!url || url.startsWith('data:')) return null; const marker = `${bucket}/`; const idx = url.indexOf(marker); if (idx === -1) return null; return url.substring(idx + marker.length); } catch { return null; } };
             const toSigned = async (url: string) => { const path = parseToPath(url); if (!path) return url; try { const { data: signed } = await supabase!.storage.from(bucket).createSignedUrl(path, 60 * 60 * 24 * 30); return signed?.signedUrl || url; } catch { return url; } };
+            if (typeof obj.cotizacionImagen === 'string') {
+              obj.cotizacionImagen = await toSigned(obj.cotizacionImagen);
+            }
+            if (typeof obj.cotizacionThumbnail === 'string') {
+              obj.cotizacionThumbnail = await toSigned(obj.cotizacionThumbnail);
+            }
             if (Array.isArray(obj.imagenes)) { obj.imagenes = await Promise.all(obj.imagenes.filter(Boolean).map(toSigned)); }
             if (Array.isArray(obj.actualizaciones)) { for (const upd of obj.actualizaciones) { if (upd && Array.isArray(upd.imagenes)) { upd.imagenes = await Promise.all(upd.imagenes.filter(Boolean).map(toSigned)); } } }
             return obj;
           };
           const valueObj = await ensureAccessibleUrls((data as any)?.data);
           return data ? { value: JSON.stringify(valueObj) } : null;
-        } catch (e) { console.error('Error obteniendo vehículo:', e); return null; }
+        } catch (e) {
+          console.error('Error obteniendo vehículo:', e);
+          throw e;
+        }
       },
       async set(key: string, value: any) {
         try {
           const id = key.replace('vehicle:', '');
           let obj = typeof value === 'string' ? JSON.parse(value) : value;
           const uploadDataUrl = async (dataUrl: string, path: string) => {
+            if (!storageAvailable) return dataUrl;
             const blob = await dataUrlToBlob(dataUrl);
             const { error: uploadError } = await supabase!.storage.from(bucket).upload(path, blob, { upsert: true, contentType: blob.type || 'image/jpeg', cacheControl: '3600' });
-            if (uploadError) { const msg = uploadError.message || JSON.stringify(uploadError); if (/bucket|not found/i.test(msg)) throw new Error(`Bucket error: ${bucket} — ${msg}`); if (/row-level security/i.test(msg)) { console.warn('RLS bloquea subida; usando dataURL inline'); return dataUrl; } throw uploadError; }
+            if (uploadError) {
+              const msg = uploadError.message || JSON.stringify(uploadError);
+              // Si el bucket no existe o no hay permisos, no romper el guardado del vehículo.
+              if (/bucket|not found|permission|unauthorized|forbidden/i.test(msg)) {
+                console.warn(`Storage no disponible (${bucket}); guardando imagen como dataURL inline`);
+                return dataUrl;
+              }
+              if (/row-level security/i.test(msg)) {
+                console.warn('RLS bloquea subida; usando dataURL inline');
+                return dataUrl;
+              }
+              throw uploadError;
+            }
             const { data: publicData } = supabase!.storage.from(bucket).getPublicUrl(path); return publicData?.publicUrl || null;
           };
           if (Array.isArray(obj.imagenes)) { obj.imagenes = await Promise.all(obj.imagenes.map((img: string, i: number) => img.startsWith('data:') ? uploadDataUrl(img, `vehicles/${id}/initial/${Date.now()}_${i}.jpg`) : img)); }
           if (Array.isArray(obj.actualizaciones)) { for (const upd of obj.actualizaciones) { if (upd && Array.isArray(upd.imagenes)) { upd.imagenes = await Promise.all(upd.imagenes.map((im: string, j: number) => im.startsWith('data:') ? uploadDataUrl(im, `vehicles/${id}/updates/${upd.id || `update_${j}`}/${Date.now()}_${j}.jpg`) : im)); } } }
+          if (typeof obj.cotizacionImagen === 'string' && obj.cotizacionImagen.startsWith('data:')) {
+            obj.cotizacionImagen = await uploadDataUrl(obj.cotizacionImagen, `vehicles/${id}/quote/${Date.now()}_quote.jpg`);
+          }
+          if (typeof obj.cotizacionThumbnail === 'string' && obj.cotizacionThumbnail.startsWith('data:')) {
+            obj.cotizacionThumbnail = await uploadDataUrl(obj.cotizacionThumbnail, `vehicles/${id}/quote/${Date.now()}_quote_thumb.jpg`);
+          }
           
           // Usar upsert en lugar de select + insert/update para evitar error 406
           const { error } = await (supabase!.from('vehicles') as any).upsert(

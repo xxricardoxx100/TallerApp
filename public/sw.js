@@ -1,5 +1,7 @@
 // Minimal service worker for Next.js PWA shell caching
-const CACHE_NAME = 'taller-cache-v1';
+// Nota: evitar cachear documentos HTML en cache-first para no servir páginas viejas
+// que referencian chunks nuevos/viejos (causa típica de "reading 'call'").
+const CACHE_NAME = 'taller-cache-v2';
 const APP_SHELL = [
   '/',
   '/favicon.ico',
@@ -11,17 +13,21 @@ const APP_SHELL = [
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(APP_SHELL))
+    (async () => {
+      const cache = await caches.open(CACHE_NAME);
+      await cache.addAll(APP_SHELL);
+      await self.skipWaiting();
+    })()
   );
 });
 
 self.addEventListener('activate', (event) => {
   event.waitUntil(
-    caches.keys().then((keys) =>
-      Promise.all(
-        keys.map((k) => (k === CACHE_NAME ? null : caches.delete(k)))
-      )
-    )
+    (async () => {
+      const keys = await caches.keys();
+      await Promise.all(keys.map((k) => (k === CACHE_NAME ? null : caches.delete(k))));
+      await self.clients.claim();
+    })()
   );
 });
 
@@ -32,17 +38,47 @@ self.addEventListener('fetch', (event) => {
   // Only handle GET and same-origin
   if (request.method !== 'GET' || url.origin !== location.origin) return;
 
-  // Stale-while-revalidate for static assets
+  // Navegaciones (HTML): network-first con fallback al shell
+  if (request.mode === 'navigate' || request.destination === 'document') {
+    event.respondWith(
+      (async () => {
+        try {
+          return await fetch(request);
+        } catch (err) {
+          const cache = await caches.open(CACHE_NAME);
+          const cached = await cache.match('/');
+          return cached || Response.error();
+        }
+      })()
+    );
+    return;
+  }
+
+  // Evitar cachear endpoints internos de Next/React Server Components
+  if (url.pathname.startsWith('/_next/') || url.pathname.startsWith('/api/')) {
+    return;
+  }
+
+  // Cache sólo para assets estáticos
+  const cacheableDestinations = new Set(['style', 'script', 'image', 'font']);
+  if (!cacheableDestinations.has(request.destination)) {
+    return;
+  }
+
+  // Stale-while-revalidate para assets
   event.respondWith(
-    caches.match(request).then((cached) => {
+    (async () => {
+      const cache = await caches.open(CACHE_NAME);
+      const cached = await cache.match(request);
       const fetchPromise = fetch(request)
         .then((response) => {
-          const clone = response.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(request, clone));
+          if (response && response.ok) {
+            cache.put(request, response.clone());
+          }
           return response;
         })
         .catch(() => cached || Response.error());
       return cached || fetchPromise;
-    })
+    })()
   );
 });

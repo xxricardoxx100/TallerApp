@@ -22,6 +22,7 @@ interface UseVehiclesResult {
 export function useVehicles(): UseVehiclesResult {
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [loading, setLoading] = useState(true);
+  const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
   const [saveStatus, setSaveStatus] = useState('');
   const [isFromCache, setIsFromCache] = useState(false);
   const isOnline = useOnlineStatus();
@@ -30,43 +31,58 @@ export function useVehicles(): UseVehiclesResult {
     if (!('storage' in window)) await initStorage();
   };
 
-  const reload = useCallback(async () => {
-    setLoading(true);
-    setIsFromCache(false);
+  const refreshFromRemote = useCallback(async () => {
+    if (!hasLoadedOnce) setLoading(true);
     await ensureStorage();
     try {
-      // Intentar cargar desde Supabase
       const listResult = await (window as any).storage.list('vehicle:', true);
       if (listResult?.items) {
         const parsed = listResult.items
           .map((it: any) => {
-            try { return JSON.parse(it.value); } catch { return null; }
+            try {
+              return JSON.parse(it.value);
+            } catch {
+              return null;
+            }
           })
           .filter(Boolean)
           .map(normalizeVehicle);
+
         const sorted = sortVehicles(parsed);
         setVehicles(sorted);
-        // Guardar en cache para uso offline
+        setIsFromCache(false);
         await cacheVehicles(sorted);
-      } else {
-        setVehicles([]);
       }
     } catch (e) {
-      console.error('Error recargando vehículos:', e);
-      // Si falla, intentar cargar desde cache
-      const cached = await getCachedVehicles();
-      if (cached) {
-        console.log('📦 Mostrando datos del cache offline');
-        setVehicles(cached);
-        setIsFromCache(true);
-      } else {
-        setVehicles([]);
-      }
+      console.error('Error cargando vehículos remotos:', e);
+      // Mantener lo que ya se está mostrando (cache/local) sin blanquear.
+    } finally {
+      setHasLoadedOnce(true);
+      setLoading(false);
     }
-    setLoading(false);
-  }, []);
+  }, [hasLoadedOnce]);
 
-  useEffect(() => { reload(); }, [reload]);
+  const reload = useCallback(async () => {
+    await refreshFromRemote();
+  }, [refreshFromRemote]);
+
+  // Local-first: cargar cache (IndexedDB) primero y refrescar en segundo plano
+  useEffect(() => {
+    void (async () => {
+      try {
+        const cached = await getCachedVehicles();
+        if (cached && cached.length > 0) {
+          setVehicles(cached);
+          setIsFromCache(true);
+          setHasLoadedOnce(true);
+          setLoading(false);
+        }
+      } catch (e) {
+        console.error('Error cargando cache local:', e);
+      }
+      await refreshFromRemote();
+    })();
+  }, [refreshFromRemote]);
 
   // Cuando vuelve la conexión, recargar automáticamente
   useEffect(() => {
@@ -81,7 +97,16 @@ export function useVehicles(): UseVehiclesResult {
     await ensureStorage();
     try {
       await (window as any).storage.set(`vehicle:${vehicle.id}`, JSON.stringify(vehicle), true);
-      await reload();
+      // Optimista: actualizar el estado local sin recargar todo (evita saltos y demora)
+      let nextVehicles: Vehicle[] = [];
+      setVehicles((prev) => {
+        const exists = prev.some(v => v.id === vehicle.id);
+        const updated = exists ? prev.map(v => (v.id === vehicle.id ? vehicle : v)) : [vehicle, ...prev];
+        nextVehicles = sortVehicles(updated);
+        return nextVehicles;
+      });
+      // Cache local en segundo plano (no bloquear UI)
+      void cacheVehicles(nextVehicles);
       setSaveStatus('✓ Guardado');
       setTimeout(() => setSaveStatus(''), 2000);
       return true;
@@ -91,7 +116,7 @@ export function useVehicles(): UseVehiclesResult {
       setTimeout(() => setSaveStatus(''), 3000);
       return false;
     }
-  }, [reload]);
+  }, [isOnline, refreshFromRemote]);
 
   const addVehicle = useCallback(async (partial: Omit<Vehicle, 'id' | 'fechaIngreso' | 'estado' | 'actualizaciones' | 'accessCode'>) => {
     const vehicle: Vehicle = {
@@ -148,7 +173,13 @@ export function useVehicles(): UseVehiclesResult {
         localStorage.removeItem(key);
       }
       
-      await reload();
+      // Optimista: remover del estado local y cache
+      let nextVehicles: Vehicle[] = [];
+      setVehicles((prev) => {
+        nextVehicles = prev.filter(v => v.id !== vehicleId);
+        return nextVehicles;
+      });
+      void cacheVehicles(nextVehicles);
       setSaveStatus('✓ Eliminado');
       setTimeout(() => setSaveStatus(''), 2000);
       return true;
@@ -158,7 +189,7 @@ export function useVehicles(): UseVehiclesResult {
       setTimeout(() => setSaveStatus(''), 3000);
       return false;
     }
-  }, [reload]);
+  }, [isOnline, refreshFromRemote]);
 
   return { vehicles, loading, saveStatus, isOnline, isFromCache, reload, saveVehicle, addVehicle, addUpdate, deleteVehicle };
 }
