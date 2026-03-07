@@ -668,6 +668,8 @@ export default function TallerMecanicoApp() {
     const { images, addFiles, removeAt, reset, isCompressing } = useUploadImages();
     const [descripcion, setDescripcion] = useState('');
     const [saving, setSaving] = useState(false);
+    const galleryInputRef = useRef<HTMLInputElement>(null);
+    const cameraInputRef = useRef<HTMLInputElement>(null);
     
     const handleSubmit = async () => {
       if (!descripcion || !selectedVehicle) { 
@@ -718,14 +720,43 @@ export default function TallerMecanicoApp() {
             </div>
             <div>
               <label className="block text-sm font-medium mb-2">Imágenes del avance</label>
-              <input 
-                type="file" 
-                accept="image/*" 
-                multiple 
-                onChange={e => addFiles(e.target.files)} 
-                className="w-full p-2 border rounded"
-                disabled={isCompressing}
-              />
+              <div className="flex gap-2">
+                <input
+                  ref={galleryInputRef}
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  onChange={e => { addFiles(e.target.files); e.currentTarget.value = ''; }}
+                  className="hidden"
+                  disabled={isCompressing}
+                />
+                <input
+                  ref={cameraInputRef}
+                  type="file"
+                  accept="image/*"
+                  capture="environment"
+                  onChange={e => { addFiles(e.target.files); e.currentTarget.value = ''; }}
+                  className="hidden"
+                  disabled={isCompressing}
+                />
+
+                <button
+                  type="button"
+                  onClick={() => galleryInputRef.current?.click()}
+                  disabled={isCompressing}
+                  className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Elegir de galería
+                </button>
+                <button
+                  type="button"
+                  onClick={() => cameraInputRef.current?.click()}
+                  disabled={isCompressing}
+                  className="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Tomar foto
+                </button>
+              </div>
               {isCompressing && (
                 <p className="text-xs text-blue-600 mt-2">Comprimiendo imágenes...</p>
               )}
@@ -1045,21 +1076,31 @@ export default function TallerMecanicoApp() {
               <div className="flex items-start justify-between">
                 <div className="flex-1">
                   <div className="flex items-center gap-2 mb-1">
-                    <span className="font-bold text-lg">{v.placa}</span>
+                    <span className="font-bold text-lg">{v.marca} {v.modelo} {v.año}</span>
                     <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
                       v.estado === 'Entregado' ? 'bg-gray-200 text-gray-700' :
                       v.estado === 'Listo para entrega' ? 'bg-green-100 text-green-700' :
                       v.estado === 'Esperando piezas' ? 'bg-yellow-100 text-yellow-700' : 'bg-blue-100 text-blue-700'
                     }`}>{v.estado}</span>
                   </div>
-                  <p className="text-sm text-gray-600">{v.marca} {v.modelo} {v.año}</p>
-                  <p className="text-sm text-gray-800 font-medium">{v.cliente}</p>
+                  <p className="text-sm text-gray-600">{v.placa}</p>
+                  <p className="text-sm text-gray-900">{v.cliente}</p>
                   <p className="text-xs text-gray-500 mt-1">{new Date(v.fechaIngreso).toLocaleDateString('es-PE')}</p>
                   {v.actualizaciones.length > 0 && (
                     <p className="text-xs text-blue-600 mt-1">{v.actualizaciones.length} actualización{v.actualizaciones.length !== 1 ? 'es' : ''}</p>
                   )}
                 </div>
-                <ChevronRight className="text-gray-400" size={20} />
+                <div className="flex items-start gap-2">
+                  {v.imagenes.length > 0 && (
+                    <img
+                      src={v.thumbnails?.[0] || v.imagenes[0]}
+                      alt={`preview-${v.placa}`}
+                      className="w-14 h-14 object-cover rounded border border-gray-200"
+                      onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                    />
+                  )}
+                  <ChevronRight className="text-gray-400" size={20} />
+                </div>
               </div>
             </div>
           ))
